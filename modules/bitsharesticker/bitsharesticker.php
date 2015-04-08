@@ -194,104 +194,16 @@ class BitsharesTicker extends Module
 	}
 	public function hookDisplayBanner($params)
 	{
-		$currencies = explode(',', $this->ticker_currency);
 		$positions = explode(',', $this->ticker_position);
-		if(!in_array('top', $positions)) return '';
-		$currencieslist = Currency::getCurrencies(true, false, true);
-		$goldCurrency = '';
-		$silverCurrency = '';
-		$gldrates = '';
-		$slvrates = '';	
-		foreach ($currencieslist as $currency)
-		{
-			if(stripos($currency->name, 'bit') !== FALSE)
-			{ 
-				if($currency->iso_code === 'XAU')
-				{
-					$goldCurrency = $currency;
-				}
-				else if($currency->iso_code === 'XAG')
-				{
-					$silverCurrency = $currency;
-				}
-			}	
-		}
-		if($goldCurrency === '' ||  $silverCurrency === '')
-		{
-			return 'Please tell the administrator to create bitSILVER(XAG) and bitGOLD(XAU) currencies from the Admin -> Currency section';
-		}		
-		$sql = 'SELECT *
-				FROM `'._DB_PREFIX_.'currency_historical`';
-		$row = Db::getInstance()->executeS($sql);
-		$historicalRates = array();
-		foreach ($row as $item)
-		{	
-			$historicalRates[$item['iso_code']] = $item['conversion_rate'];	
-		}						
-		foreach ($currencieslist as $currency)
-		{
-			if(stripos($currency->name, 'bit') !== FALSE)
-			{ 	
-				if(in_array($currency->iso_code, $currencies))
-				{
-					if($goldCurrency->iso_code !== $currency->iso_code)
-					{
-						$convertedGoldPrice = Tools::convertPriceFull(1,$goldCurrency, $currency); 
-						$gldrates[$currency->name] = array();
-						$gldrates[$currency->name]['price'] = Tools::displayPrice($convertedGoldPrice, $currency);
-						$gldrates[$currency->name]['priceRaw'] = $convertedGoldPrice;
-						if(isset($historicalRates[$goldCurrency->iso_code]))
-						{						
-							$historicGoldCurrency = new Currency($goldCurrency->id);
-							$historicGoldCurrency->conversion_rate = $historicalRates[$goldCurrency->iso_code];	
-							$gldrates[$currency->name]['change'] = Tools::ps_round($convertedGoldPrice - Tools::convertPriceFull(1,$historicGoldCurrency, $currency), _PS_PRICE_DISPLAY_PRECISION_); 
-						}
-
-					}
-					if($silverCurrency->iso_code !== $currency->iso_code)
-					{
-						$convertedSilverPrice = Tools::convertPriceFull(1,$silverCurrency, $currency); 
-						$slvrates[$currency->name] = array();
-						$slvrates[$currency->name]['price'] = Tools::displayPrice($convertedSilverPrice, $currency);
-						$slvrates[$currency->name]['priceRaw'] = $convertedSilverPrice;
-						if(isset($historicalRates[$silverCurrency->iso_code]))
-						{
-							$historicSlvCurrency = new Currency($goldCurrency->id);
-							$historicSlvCurrency->conversion_rate = $historicalRates[$silverCurrency->iso_code];			
-							$slvrates[$currency->name]['change'] = Tools::ps_round($convertedSilverPrice - Tools::convertPriceFull(1,$historicSlvCurrency, $currency), _PS_PRICE_DISPLAY_PRECISION_);
-						}		
-					}
-				}
-			}	
-				
-		}
-
-						
-		$rates = array(array('heading'=>$this->l('Gold Rates'), 'lineItem'=>$this->l('1 Gold oz'), 'rates'=>$gldrates), array('heading'=>$this->l('Silver Rates'), 'lineItem'=>$this->l('1 Silver oz'), 'rates'=>$slvrates));
-		$text = date(DATE_RFC2822). '&nbsp;&nbsp;';
-		foreach ($rates as $thisrate)
-		{
-			$text .= $thisrate['heading'] . ': ';
-			foreach($thisrate['rates'] as $key => $currencyrate)
-			{
-				$pct = Tools::ps_round(($currencyrate['change']/$currencyrate['priceRaw'])*100, 2);
-				$text .= $thisrate['lineItem'] . ' = <b class="'.$key.'">' . $currencyrate['price'] .'</b>';
-				if($currencyrate['change'] > 0)
-				{
-					$text .= '<b class="up">&nbsp;<b class="change">+&nbsp;'.$currencyrate['change']. '</b><b class="pct">&nbsp;(' . $pct . '%)</b>&nbsp; <em class="icon-caret-up"></em></b>';
-				}
-				else if($currencyrate['change'] < 0)
-				{
-					$text .= '<b class="down">&nbsp;<b class="change">&nbsp;'.$currencyrate['change']. '</b><b class="pct">&nbsp;(' . $pct . '%)</b>&nbsp; <em class="icon-caret-down"></em></b>';
-				}
-				$text .= '&nbsp;&nbsp;';
-			}
-			$text .= '&nbsp;&nbsp;&nbsp;&nbsp;';
-		}
-		$text .= $this->l('Rates updated every 5 minutes.'). '.&nbsp;&nbsp;';	
-		$text .= $this->l('Powered by <a href="http://bitshares.org" target="_blank">Bitshares.org</a>...&nbsp;&nbsp;');
-		$this->smarty->assign('title', $this->l('Live Ticker'));
-		$this->smarty->assign('text', $text);	
+		if(!in_array('top', $positions)) return '';				
+		$currencyPrimary = 'GOLD,SILVER';
+		$source = Context::getContext()->shop->getBaseURL() . 'bitshares/checkout/callbacks/callback_getfeedprices.php';
+		$currencyTemplateSource = Context::getContext()->shop->getBaseURL() . 'bitshares/checkout/Common-Currency.json';
+		$this->smarty->assign('title', $this->l('Live Ticker'));	
+		$this->smarty->assign('source', $source);
+		$this->smarty->assign('currencyTemplateSource', $currencyTemplateSource);	
+		$this->smarty->assign('currencyPrimary', $currencyPrimary);
+		$this->smarty->assign('currencySecondary', $this->ticker_currency);	
 		return $this->display(__FILE__, 'bitsharesticker-top.tpl');
 	}
 	public function hookRightColumn($params)
@@ -359,11 +271,10 @@ class BitsharesTicker extends Module
 	{
 		$this->context->controller->addJqueryUI('ui.accordion');
 		$this->context->controller->addJS(($this->_path).'bitsharesticker.js');
-		$this->context->controller->addJS(($this->_path).'bitsharesscroller.js');
+		$this->context->controller->addJS(Context::getContext()->shop->getBaseURL() . 'bitshares/checkout/'.'bitsharescheckout.min.js');
 		$this->context->controller->addCSS(_PS_JS_DIR_.'jquery/ui/themes/ui-lightness/jquery-ui.css');	
 		$this->context->controller->addCSS(($this->_path).'bitsharesticker.css', 'all');
-		$this->context->controller->addCSS(($this->_path).'bitsharesscroller.css', 'all');
-		$this->context->controller->addCSS(($this->_path).'font-awesome.css', 'all');
+		$this->context->controller->addCSS(Context::getContext()->shop->getBaseURL() . 'bitshares/checkout/'.'bitsharescheckout.min.css', 'all');
 	}
 
 }
